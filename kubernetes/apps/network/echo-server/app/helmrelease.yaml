@@ -2,7 +2,7 @@
 apiVersion: helm.toolkit.fluxcd.io/v2beta2
 kind: HelmRelease
 metadata:
-  name: cloudflared
+  name: echo-server
 spec:
   interval: 30m
   chart:
@@ -25,41 +25,25 @@ spec:
   values:
     controllers:
       main:
-        replicas: 2
         strategy: RollingUpdate
-        annotations:
-          reloader.stakater.com/auto: "true"
         containers:
           main:
             image:
-              repository: docker.io/cloudflare/cloudflared
-              tag: 2024.2.1
+              repository: ghcr.io/mendhak/http-https-echo
+              tag: 31
             env:
-              NO_AUTOUPDATE: true
-              TUNNEL_CRED_FILE: /etc/cloudflared/creds/credentials.json
-              TUNNEL_METRICS: 0.0.0.0:8080
-              TUNNEL_ORIGIN_ENABLE_HTTP2: true
-              TUNNEL_TRANSPORT_PROTOCOL: quic
-              TUNNEL_POST_QUANTUM: true
-              TUNNEL_ID:
-                valueFrom:
-                  secretKeyRef:
-                    name: cloudflared-secret
-                    key: TUNNEL_ID
-            args:
-              - tunnel
-              - --config
-              - /etc/cloudflared/config/config.yaml
-              - run
-              - "$(TUNNEL_ID)"
+              HTTP_PORT: &port 8080
+              LOG_WITHOUT_NEWLINE: true
+              LOG_IGNORE_PATH: /healthz
+              PROMETHEUS_ENABLED: true
             probes:
               liveness: &probes
                 enabled: true
                 custom: true
                 spec:
                   httpGet:
-                    path: /ready
-                    port: &port 8080
+                    path: /healthz
+                    port: *port
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 1
@@ -77,7 +61,7 @@ spec:
               requests:
                 cpu: 10m
               limits:
-                memory: 256Mi
+                memory: 64Mi
         pod:
           securityContext:
             runAsUser: 65534
@@ -91,19 +75,32 @@ spec:
     serviceMonitor:
       main:
         enabled: true
-    persistence:
-      config:
+    ingress:
+      main:
         enabled: true
-        type: configMap
-        name: cloudflared-configmap
-        globalMounts:
-          - path: /etc/cloudflared/config/config.yaml
-            subPath: config.yaml
-            readOnly: true
-      creds:
-        type: secret
-        name: cloudflared-secret
-        globalMounts:
-          - path: /etc/cloudflared/creds/credentials.json
-            subPath: credentials.json
-            readOnly: true
+        className: external
+        annotations:
+          external-dns.alpha.kubernetes.io/target: "external.${SECRET_DOMAIN}"
+        hosts:
+          - host: &host "{{ .Release.Name }}-external.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                service:
+                  name: main
+                  port: http
+        tls:
+          - hosts:
+              - *host
+      internal:
+        enabled: true
+        className: internal
+        hosts:
+          - host: &host "{{ .Release.Name }}-internal.${SECRET_DOMAIN}"
+            paths:
+              - path: /
+                service:
+                  name: main
+                  port: http
+        tls:
+          - hosts:
+              - *host
