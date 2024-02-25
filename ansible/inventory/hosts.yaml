@@ -6,11 +6,11 @@ kubernetes:
         "rpi4":
           ansible_user: ""
           ansible_host: "192.168.100.174"
+    workers:
+      hosts:
         "rpi3":
           ansible_user: ""
           ansible_host: "192.168.100.173"
-    workers:
-      hosts:
         "jetson":
           ansible_user: ""
           ansible_host: "192.168.100.175"
